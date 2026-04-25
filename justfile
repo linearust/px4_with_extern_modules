@@ -1,13 +1,17 @@
 # Run PX4 SITL with simulator and ground control (default)
 default: run
 
-QGC_VERSION    := "v5.0.8"
-QGC_APPIMAGE   := "apps/QGroundControl.AppImage"
-QGC_URL        := "https://github.com/mavlink/qgroundcontrol/releases/download/" + QGC_VERSION + "/QGroundControl-x86_64.AppImage"
-PX4_DIR        := "PX4-Autopilot"
-AIRFRAMES_DIR  := PX4_DIR + "/ROMFS/px4fmu_common/init.d-posix/airframes"
-LAYOUT_FILE    := "/tmp/px4_layout.kdl"
-ZELLIJ_SESSION := "px4"
+QGC_VERSION          := "v5.0.8"
+QGC_APPIMAGE         := "apps/QGroundControl.AppImage"
+QGC_URL              := "https://github.com/mavlink/qgroundcontrol/releases/download/" + QGC_VERSION + "/QGroundControl-x86_64.AppImage"
+PX4_DIR              := "PX4-Autopilot"
+AIRFRAMES_DIR        := PX4_DIR + "/ROMFS/px4fmu_common/init.d-posix/airframes"
+LAYOUT_FILE          := "/tmp/px4_layout.kdl"
+ZELLIJ_SESSION       := "px4"
+# Gazebo Classic ships only on Ubuntu 20.04 (focal). The 'jammy' simulation
+# image only contains modern gz, so cmake silently skips classic targets.
+DOCKER_IMAGE_CLASSIC := "px4io/px4-dev-simulation-focal:latest"
+DOCKER_CLASSIC_NAME  := "px4-classic"
 
 # Initialize submodules and download QGroundControl
 init:
@@ -92,6 +96,58 @@ run vehicle="": init
 	zellij delete-session {{ZELLIJ_SESSION}} --force >/dev/null 2>&1 || true
 	exec zellij --session {{ZELLIJ_SESSION}} --new-session-with-layout {{LAYOUT_FILE}}
 
+# Run an airship/Gazebo-Classic vehicle (e.g. cloudship) via Docker + WSLg
+run-classic vehicle="cloudship": init
+	#!/usr/bin/env bash
+	set -e
+	# Permit local container X11 connections for Gazebo GUI
+	command -v xhost >/dev/null 2>&1 && xhost +local: >/dev/null 2>&1 || true
+	echo "Pulling {{DOCKER_IMAGE_CLASSIC}} (first time only, ~3 GB)..."
+	docker pull {{DOCKER_IMAGE_CLASSIC}} 2>&1 | tail -2
+	cat > {{LAYOUT_FILE}} <<KDL
+	layout {
+	    tab name="PX4-classic ({{vehicle}})" {
+	        pane split_direction="vertical" {
+	            pane name="PX4 (Docker + Gazebo Classic)" {
+	                command "just"
+	                args "_run-classic-docker" "{{vehicle}}"
+	            }
+	            pane split_direction="horizontal" {
+	                pane name="QGC" {
+	                    command "bash"
+	                    args "-c" "sleep 8 && $(pwd)/{{QGC_APPIMAGE}}"
+	                }
+	                pane name="Terminal" focus=true {
+	                    command "bash"
+	                }
+	            }
+	        }
+	    }
+	}
+	KDL
+	zellij delete-session {{ZELLIJ_SESSION}} --force >/dev/null 2>&1 || true
+	exec zellij --session {{ZELLIJ_SESSION}} --new-session-with-layout {{LAYOUT_FILE}}
+
+# (private) Build & run PX4 SITL with Gazebo Classic inside the container.
+# Splits out of run-classic so the long docker invocation lives in one place.
+[private]
+_run-classic-docker vehicle:
+	#!/usr/bin/env bash
+	set -e
+	docker run --rm -it \
+		--name {{DOCKER_CLASSIC_NAME}} \
+		--network host \
+		-e DISPLAY \
+		-e WAYLAND_DISPLAY \
+		-e PULSE_SERVER \
+		-e XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir \
+		-v /tmp/.X11-unix:/tmp/.X11-unix \
+		-v /mnt/wslg:/mnt/wslg \
+		-v "$(pwd)":/workspace \
+		-w /workspace/{{PX4_DIR}} \
+		{{DOCKER_IMAGE_CLASSIC}} \
+		bash -c "git config --global --add safe.directory '*' && make px4_sitl gazebo-classic_{{vehicle}} EXTERNAL_MODULES_LOCATION=../"
+
 # Close PX4 SITL, Gazebo, QGroundControl, and the zellij session
 close:
 	#!/usr/bin/env bash
@@ -114,6 +170,11 @@ close:
 			pkill -f "$pat" 2>/dev/null || true
 		fi
 	done
+	# Stop Gazebo-Classic Docker container if it's running
+	if docker ps --format '{{{{.Names}}}}' 2>/dev/null | grep -q "^{{DOCKER_CLASSIC_NAME}}$"; then
+		echo "  → Docker ({{DOCKER_CLASSIC_NAME}})"
+		docker stop {{DOCKER_CLASSIC_NAME}} >/dev/null 2>&1 || true
+	fi
 	rm -f /tmp/px4-sock-* 2>/dev/null || true
 	sleep 1
 	# Force-kill any stragglers
