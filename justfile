@@ -134,6 +134,9 @@ run-classic vehicle="cloudship": init
 _run-classic-docker vehicle:
 	#!/usr/bin/env bash
 	set -e
+	# Defensively remove any stale container left over from a prior aborted run
+	# (e.g. closed terminal without 'just close', or close was interrupted).
+	docker rm -f {{DOCKER_CLASSIC_NAME}} >/dev/null 2>&1 || true
 	docker run --rm -it \
 		--name {{DOCKER_CLASSIC_NAME}} \
 		--network host \
@@ -170,10 +173,12 @@ close:
 			pkill -f "$pat" 2>/dev/null || true
 		fi
 	done
-	# Stop Gazebo-Classic Docker container if it's running
-	if docker ps --format '{{{{.Names}}}}' 2>/dev/null | grep -q "^{{DOCKER_CLASSIC_NAME}}$"; then
+	# Stop & remove the Gazebo-Classic container if it exists (running or not).
+	# -aq lists all matching ids (including exited); --filter avoids a
+	# Go-template format string, which would collide with just interpolation.
+	if [ -n "$(docker ps -aq --filter name=^{{DOCKER_CLASSIC_NAME}}$ 2>/dev/null)" ]; then
 		echo "  → Docker ({{DOCKER_CLASSIC_NAME}})"
-		docker stop {{DOCKER_CLASSIC_NAME}} >/dev/null 2>&1 || true
+		docker rm -f {{DOCKER_CLASSIC_NAME}} >/dev/null 2>&1 || true
 	fi
 	rm -f /tmp/px4-sock-* 2>/dev/null || true
 	sleep 1
