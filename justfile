@@ -1,6 +1,8 @@
 # Run PX4 with simulator and ground control (default)
 default: run
 
+QGC_VERSION := "v5.0.8"
+
 # Initialize submodules and download QGroundControl
 init:
 	# Pull latest changes
@@ -8,12 +10,14 @@ init:
 	# Update PX4-Autopilot to latest, then initialize its nested submodules
 	git submodule update --init --remote PX4-Autopilot
 	cd PX4-Autopilot && git submodule update --init --recursive
-	# Download QGroundControl
+	# Download QGroundControl (re-download if missing or version mismatch)
 	mkdir -p apps
-	[ -f apps/QGroundControl.AppImage ] || ( \
-		wget -qO apps/QGroundControl.AppImage https://d176tv9ibo4jno.cloudfront.net/builds/master/QGroundControl-x86_64.AppImage && \
-		chmod +x apps/QGroundControl.AppImage \
-	)
+	if [ ! -f apps/QGroundControl.AppImage ] || [ "$(cat apps/QGroundControl.AppImage.version 2>/dev/null)" != "{{QGC_VERSION}}" ]; then \
+		echo "Downloading QGroundControl {{QGC_VERSION}}..." && \
+		wget -qO apps/QGroundControl.AppImage https://github.com/mavlink/qgroundcontrol/releases/download/{{QGC_VERSION}}/QGroundControl-x86_64.AppImage && \
+		chmod +x apps/QGroundControl.AppImage && \
+		echo "{{QGC_VERSION}}" > apps/QGroundControl.AppImage.version; \
+	fi
 
 # Run PX4 with simulator and ground control
 run: init
