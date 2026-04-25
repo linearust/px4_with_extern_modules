@@ -6,7 +6,7 @@ Template for developing PX4 external modules without modifying the core PX4 sour
 
 - [Ubuntu](https://ubuntu.com/download)
 - Python 3 packages: [kconfiglib](https://pypi.org/project/kconfiglib/), [pyros-genmsg](https://pypi.org/project/pyros-genmsg/)
-- [Gazebo Jetty](https://gazebosim.org/docs/jetty/install)
+- [Gazebo Harmonic](https://gazebosim.org/docs/harmonic/install)
 - [just](https://github.com/casey/just#installation)
 - [zellij](https://zellij.dev/documentation/installation)
 
